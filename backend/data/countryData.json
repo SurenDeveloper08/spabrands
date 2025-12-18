@@ -1,0 +1,8 @@
+{
+  "uae": { "name": "UAE", "cities": ["Dubai", "Abu Dhabi", "Sharjah"], "hreflang": "en-ae" },
+  "saudi": { "name": "Saudi Arabia", "cities": ["Riyadh", "Jeddah", "Dammam"], "hreflang": "en-sa" },
+  "kuwait": { "name": "Kuwait", "cities": ["Kuwait City", "Al Ahmadi"], "hreflang": "en-kw" },
+  "qatar": { "name": "Qatar", "cities": ["Doha", "Al Rayyan"], "hreflang": "en-qa" },
+  "oman": { "name": "Oman", "cities": ["Muscat", "Salalah"],  "hreflang": "en-om" },
+  "bahrain": { "name": "Bahrain", "cities": ["Manama", "Riffa"], "hreflang": "en-bh" }
+}

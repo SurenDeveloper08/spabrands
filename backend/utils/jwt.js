@@ -1,0 +1,32 @@
+const sendToken = (user, statusCode, res) => {
+
+    //Creating JWT Token
+    const token = user.getJwtToken();
+
+    //setting cookies 
+    const options = {
+        // expires: new Date(
+        //         Date.now() + process.env.COOKIE_EXPIRES_TIME  * 24 * 60 * 60 * 1000 
+        //     ),
+        expires: new Date(Date.now() + 5 * 60 * 1000),
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production', // only HTTPS in production
+        sameSite: 'Strict',
+    }
+
+    res.status(statusCode)
+        .cookie('token', token, options)
+        .json({
+            success: true,
+            token,
+            user: {
+                id: user._id,
+                name: user.name,
+                email: user.email,
+                role: user.role // send role to frontend
+            }
+        })
+
+}
+
+module.exports = sendToken;
