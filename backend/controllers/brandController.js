@@ -129,6 +129,12 @@ exports.updateBrand = catchAsyncError(async (req, res) => {
                 if (err) console.warn("⚠️ Failed to delete old brand image:", err.message);
             });
         }
+        const seo = {
+            metaTitle: req.body.metaTitle?.trim() || '',
+            metaDescription: req.body.metaDescription?.trim() || '',
+            metaKeywords: req.body.metaKeywords?.trim() || '',
+            canonicalUrl: req.body.canonicalUrl?.trim() || '',
+        };
 
         // Prepare updated data
         const updatedData = {
@@ -138,6 +144,7 @@ exports.updateBrand = catchAsyncError(async (req, res) => {
             description: description ?? brand.description,
             isActive: isActive ?? brand.isActive,
             sortOrder: sortOrder ?? brand.sortOrder,
+            seo,
         };
 
         if (req.file) {
@@ -227,7 +234,7 @@ exports.toggleBrandActive = catchAsyncError(async (req, res) => {
 
 exports.getActiveBrands = catchAsyncError(async (req, res) => {
     try {
-       const brands = await Brand.find({ isActive: true }).sort({ order: 1 });
+        const brands = await Brand.find({ isActive: true }).sort({ order: 1 });
 
         res.status(200).json({
             success: true,

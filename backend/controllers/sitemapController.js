@@ -1,130 +1,113 @@
 // controllers/sitemapController.js
 const Product = require('../models/productModel');
 const Category = require('../models/categoryModel');
-
-const escapeXml = (unsafe) =>
-  unsafe
-    .replace(/[<>&'"]/g, (c) => {
-      switch (c) {
-        case "<":
-          return "&lt;";
-        case ">":
-          return "&gt;";
-        case "&":
-          return "&amp;";
-        case "'":
-          return "&apos;";
-        case '"':
-          return "&quot;";
-      }
-    });
+const Subcategory = require('../models/Subcategory');
+const Brand = require('../models/Brand');
+const { SitemapStream, streamToPromise } = require("sitemap");
+const { Readable } = require("stream");
 
 exports.generateSitemap = async (req, res) => {
   try {
-    const baseUrl = process.env.FRONTEND_URL || "https://eternicabeauty.com";
 
-    // Fetch all active categories and products
-    const [categories, products] = await Promise.all([
-      Category.find({ isActive: true }).lean(),
-      Product.find({ isActive: true }).select("slug category subCategory updatedAt createdAt seo").lean(),
-    ]);
+    const BASE_URL = process.env.FRONTEND_URL || "https://spabrands.me";
 
-    const urls = [];
+    const links = [];
 
-    // Static pages
-    const staticRoutes = [
-      { path: "/", priority: 1.0 },
-      { path: "/about", priority: 0.7 },
-      { path: "/contact", priority: 0.7 },
-    ];
+    // Home
+    links.push({ url: "/", changefreq: "daily", priority: 1.0 });
 
-    staticRoutes.forEach((route) => {
-      urls.push(`
-<url>
-  <loc>${escapeXml(baseUrl + route.path)}</loc>
-  <lastmod>${new Date().toISOString()}</lastmod>
-  <changefreq>weekly</changefreq>
-  <priority>${route.priority}</priority>
-</url>`);
+    // Categories
+    const categories = await Category.find({ isActive: true }, "slug updatedAt");
+    categories.forEach(cat => {
+      links.push({
+        url: `/${cat.slug}`,
+        changefreq: "weekly",
+        priority: 0.8,
+        lastmod: cat.updatedAt || cat.createdAt
+      });
     });
 
-    // Categories & Subcategories
-    categories.forEach((cat) => {
-      if (!cat.slug) return;
+    // Subcategories
+    const subcategories = await Subcategory.find({ isActive: true }, "slug category updatedAt");
+    subcategories.forEach(sub => {
+      links.push({
+        url: `/${sub.category}/${sub.slug}`,
+        changefreq: "weekly",
+        priority: 0.7,
+        lastmod: sub.updatedAt || sub.createdAt
+      });
+    });
 
-      // Category URL
-      const catDate = cat.updatedAt || cat.createdAt || new Date();
-      const catUrl = cat.seo?.canonicalUrl?.trim() || `${baseUrl}/${cat.slug}`;
+    // Brands
+    const brands = await Brand.find({ isActive: true }, "slug updatedAt");
+    brands.forEach(brand => {
+      links.push({
+        url: `/brand/${brand.slug}`,
+        changefreq: "weekly",
+        priority: 0.7,
+        lastmod: brand.updatedAt || brand.createdAt
+      });
+    });
 
-      urls.push(`
-<url>
-  <loc>${escapeXml(catUrl)}</loc>
-  <lastmod>${new Date(catDate).toISOString()}</lastmod>
-  <changefreq>weekly</changefreq>
-  <priority>0.9</priority>
-</url>`);
+    // Brand + Category combinations
+    const brandCategories = await Product.aggregate([
+      { $match: { isActive: true } },
+      { $group: { _id: { brand: "$brand", category: "$category" } } }
+    ]);
 
-      // Only include **active subcategories**
-      (cat.subcategories || [])
-        .filter((sub) => sub.isActive)
-        .forEach((sub) => {
-          if (!sub.slug) return;
-          const subDate = sub.updatedAt || catDate;
-          const subUrl =
-            sub.seo?.canonicalUrl?.trim() || `${baseUrl}/${cat.slug}/${sub.slug}`;
+    brandCategories.forEach(item => {
+      links.push({
+        url: `/brand/${item._id.brand}/${item._id.category}`,
+        changefreq: "weekly",
+        priority: 0.8
+      });
+    });
 
-          urls.push(`
-<url>
-  <loc>${escapeXml(subUrl)}</loc>
-  <lastmod>${new Date(subDate).toISOString()}</lastmod>
-  <changefreq>weekly</changefreq>
-  <priority>0.8</priority>
-</url>`);
-        });
+    // Brand + Category + SubCategory combinations
+    const brandCategorySubs = await Product.aggregate([
+      { $match: { isActive: true } },
+      { $group: { _id: { brand: "$brand", category: "$category", subCategory: "$subCategory" } } }
+    ]);
+
+    brandCategorySubs.forEach(item => {
+      links.push({
+        url: `/brand/${item._id.brand}/${item._id.category}/${item._id.subCategory}`,
+        changefreq: "weekly",
+        priority: 0.7
+      });
     });
 
     // Products
-    products.forEach((prod) => {
-      if (!prod.slug) return;
+    const products = await Product.find({ isActive: true }, "slug brand category subCategory updatedAt");
+    products.forEach(p => {
+      // Category product URL
+      links.push({
+        url: `/${p.category}/${p.subCategory}/${p.slug}`,
+        changefreq: "weekly",
+        priority: 0.9,
+        lastmod: p.updatedAt || p.createdAt
+      });
 
-      // Check if category & subcategory exist and are active
-      const category = categories.find((c) => c.slug === (typeof prod.category === "string" ? prod.category : prod.category?.slug));
-      if (!category || !category.isActive) return;
-
-      let subCategory = null;
-      if (prod.subCategory) {
-        subCategory = (category.subcategories || []).find(
-          (s) => s.slug === (typeof prod.subCategory === "string" ? prod.subCategory : prod.subCategory?.slug)
-        );
-        if (prod.subCategory && (!subCategory || !subCategory.isActive)) return; // skip product if subcategory inactive
-      }
-
-      const prodDate = prod.updatedAt || prod.createdAt || new Date();
-      const prodUrl =
-        prod.seo?.canonicalUrl?.trim() ||
-        (subCategory
-          ? `${baseUrl}/${category.slug}/${subCategory.slug}/${prod.slug}`
-          : `${baseUrl}/${category.slug}/${prod.slug}`);
-
-      urls.push(`
-<url>
-  <loc>${escapeXml(prodUrl)}</loc>
-  <lastmod>${new Date(prodDate).toISOString()}</lastmod>
-  <changefreq>daily</changefreq>
-  <priority>0.9</priority>
-</url>`);
+      // Brand product URL
+      links.push({
+        url: `/brand/${p.brand}/${p.category}/${p.subCategory}/${p.slug}`,
+        changefreq: "weekly",
+        priority: 0.9,
+        lastmod: p.updatedAt || p.createdAt
+      });
     });
 
-    // Final XML
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-${urls.join("\n")}
-</urlset>`;
+    // Generate XML
+    const stream = new SitemapStream({ hostname: BASE_URL });
+    const xml = await streamToPromise(Readable.from(links).pipe(stream));
 
-    res.setHeader("Content-Type", "application/xml; charset=UTF-8");
-    res.status(200).send(xml);
+    res.setHeader("Content-Type", "application/xml");
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.send(xml.toString());
+
   } catch (error) {
     console.error("❌ Sitemap generation error:", error);
     res.status(500).send("Error generating sitemap");
   }
 };
+
